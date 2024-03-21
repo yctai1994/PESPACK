@@ -40,12 +40,40 @@
 //     15 16
 //     END
 
+const std = @import("std");
+
+const IgorHeader = enum {};
+
 const WavesInfo = struct {};
 
-fn parseWaves() WavesInfo {}
+fn parseWaves(str: []const u8) void {
+    const header: []const u8 = "WAVES";
+    var index: usize = 0;
+
+    for (header) |char| {
+        if (char != str[index]) unreachable;
+        index += 1;
+    }
+
+    if (str[index] == '/') {
+        index += 1;
+        if (str[index] != 'S' and str[index] != 'D') unreachable;
+        index += 1;
+    }
+
+    if (str[index] == '/') {
+        index += 1;
+        if (str[index] == 'N') index += 1 else unreachable;
+        if (str[index] == '=') index += 1 else unreachable;
+    }
+
+    std.debug.print("\n{any}\n", .{index});
+}
 
 test "test" {
     const str: []const u8 = "WAVES/S/N=(3,2) 'ID_001'";
     const ind: usize = 0;
-    _ = .{ str, ind };
+    _ = .{ind};
+
+    parseWaves(str);
 }
