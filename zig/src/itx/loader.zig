@@ -41,39 +41,92 @@
 //     END
 
 const std = @import("std");
+const fmt = std.fmt;
+const debug = std.debug;
+const testing = std.testing;
 
-const IgorHeader = enum {};
+fn intFromChar(char: u8) u8 {
+    return switch (char) {
+        '0'...'9' => char - 48,
+        else => unreachable,
+    };
+}
 
-const WavesInfo = struct {};
+const IgorTextErr = error{
+    KeywordError,
+    FlagError,
+    SizeError,
+};
 
-fn parseWaves(str: []const u8) void {
-    const header: []const u8 = "WAVES";
-    var index: usize = 0;
+const IgorHeader = enum {
+    WAVES,
 
-    for (header) |char| {
-        if (char != str[index]) unreachable;
-        index += 1;
+    fn getString(e: IgorHeader) []const u8 {
+        return switch (e) {
+            .WAVES => "WAVES",
+        };
+    }
+};
+
+const WavesInfo = struct {
+    nrow: usize,
+    ncol: usize,
+    name: []const u8,
+};
+
+fn parseWaves(str: []const u8) !WavesInfo {
+    var ix: usize = 0;
+
+    for (IgorHeader.getString(.WAVES)) |char| {
+        if (char == str[ix]) ix += 1 else return error.KeywordError;
     }
 
-    if (str[index] == '/') {
-        index += 1;
-        if (str[index] != 'S' and str[index] != 'D') unreachable;
-        index += 1;
+    while (str[ix] == '/') {
+        ix += 1;
+        defer ix += 1;
+        switch (str[ix]) {
+            'S', 'D' => continue,
+            'N' => break,
+            else => return error.FlagError,
+        }
     }
 
-    if (str[index] == '/') {
-        index += 1;
-        if (str[index] == 'N') index += 1 else unreachable;
-        if (str[index] == '=') index += 1 else unreachable;
-    }
+    if (str[ix] == '=') ix += 1 else return error.FlagError;
+    if (str[ix] == '(') ix += 1 else return error.FlagError;
 
-    std.debug.print("\n{any}\n", .{index});
+    var nrow: usize = 0;
+    while (str[ix] != ',') : (ix += 1) {
+        nrow = nrow * 10 + intFromChar(str[ix]);
+    } else ix += 1;
+
+    var ncol: usize = 0;
+    while (str[ix] != ')') : (ix += 1) {
+        ncol = ncol * 10 + intFromChar(str[ix]);
+    } else ix += 1;
+
+    while (str[ix] == ' ') ix += 1;
+
+    return WavesInfo{ .nrow = nrow, .ncol = ncol, .name = str[ix..] };
 }
 
 test "test" {
-    const str: []const u8 = "WAVES/S/N=(3,2) 'ID_001'";
-    const ind: usize = 0;
-    _ = .{ind};
-
-    parseWaves(str);
+    {
+        const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'";
+        const info: WavesInfo = parseWaves(str) catch unreachable;
+        try testing.expect(info.nrow == 201);
+        try testing.expect(info.ncol == 132);
+        try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
+    }
+    {
+        const str: []const u8 = "WAVE//S/N=(3,2) 'ID_001'";
+        _ = parseWaves(str) catch |err| {
+            try testing.expect(err == error.KeywordError);
+        };
+    }
+    {
+        const str: []const u8 = "WAVES/I/N=(3,2) 'ID_001'";
+        _ = parseWaves(str) catch |err| {
+            try testing.expect(err == error.FlagError);
+        };
+    }
 }
