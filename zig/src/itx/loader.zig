@@ -40,10 +40,19 @@
 //     15 16
 //     END
 
+const fs = std.fs;
+const io = std.io;
+const os = std.os;
 const std = @import("std");
 const fmt = std.fmt;
 const debug = std.debug;
+const posix = std.posix;
 const testing = std.testing;
+
+const ReadError = error{
+    BufferTooShort,
+    EndOfFile,
+} || posix.ReadError;
 
 fn intFromChar(char: u8) u8 {
     return switch (char) {
@@ -52,18 +61,24 @@ fn intFromChar(char: u8) u8 {
     };
 }
 
-const IgorTextErr = error{
+const IgorTextError = error{
     KeywordError,
     FlagError,
     SizeError,
 };
 
 const IgorHeader = enum {
+    IGOR,
     WAVES,
+    BEGIN,
+    END,
 
     fn getString(e: IgorHeader) []const u8 {
         return switch (e) {
+            .IGOR => "IGOR",
             .WAVES => "WAVES",
+            .BEGIN => "BEGIN",
+            .END => "END",
         };
     }
 };
@@ -109,7 +124,24 @@ fn parseWaves(str: []const u8) !WavesInfo {
     return WavesInfo{ .nrow = nrow, .ncol = ncol, .name = str[ix..] };
 }
 
-test "test" {
+fn parseRow(des: []f64, src: []const u8) !void {
+    var px: usize = 0;
+    var ix: usize = 0;
+
+    for (src, 0..) |char, jx| {
+        if (char != ' ') continue else {
+            des[px] = try fmt.parseFloat(f64, src[ix..jx]);
+            ix = jx + 1;
+            px += 1;
+        }
+    }
+
+    des[px] = try fmt.parseFloat(f64, src[ix..]);
+
+    return;
+}
+
+test "test #1" {
     {
         const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'";
         const info: WavesInfo = parseWaves(str) catch unreachable;
@@ -118,15 +150,65 @@ test "test" {
         try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
     }
     {
-        const str: []const u8 = "WAVE//S/N=(3,2) 'ID_001'";
+        const str: []const u8 = "WAVE//S/N=(201,132) 'ID_001'";
         _ = parseWaves(str) catch |err| {
             try testing.expect(err == error.KeywordError);
         };
     }
     {
-        const str: []const u8 = "WAVES/I/N=(3,2) 'ID_001'";
+        const str: []const u8 = "WAVES/I/N=(201,132) 'ID_001'";
         _ = parseWaves(str) catch |err| {
             try testing.expect(err == error.FlagError);
         };
+    }
+    {
+        const src: []const u8 = "111.1 222.2 333.3";
+        var des: [3]f64 = undefined;
+        try parseRow(&des, src);
+        debug.print("\n{any}\n", .{des});
+    }
+}
+
+fn readByte(fd: posix.fd_t) ReadError!u8 {
+    var result: [1]u8 = undefined;
+    const amt_read = try posix.read(fd, result[0..]);
+    if (amt_read < 1) return error.EndOfFile;
+    return result[0];
+}
+
+fn nextline(buffer: []u8, file: posix.fd_t) ReadError![]u8 {
+    var end: usize = 0;
+    for (buffer) |*ptr| {
+        if (readByte(file)) |byte| {
+            if (byte == '\r') continue;
+            if (byte == '\n') return buffer[0..end];
+            ptr.* = byte;
+            end += 1;
+        } else |err| {
+            if (err == error.EndOfFile) {
+                return buffer[0..end];
+            } else return err;
+        }
+    }
+    return error.BufferTooShort;
+}
+
+test "test" {
+    debug.print("\n", .{});
+
+    const file: posix.fd_t = if (fs.cwd().openFile(
+        "../../../assets/scan.itx",
+        .{ .mode = .read_only },
+    )) |temp| temp.handle else |err| return err;
+    defer posix.close(file);
+
+    var buffer: [128]u8 = undefined;
+
+    for (0..13) |_| {
+        const line: []u8 = try nextline(&buffer, file);
+        debug.print(
+            "{d: >4}: {s} (has \\r: {any})\n",
+            .{ line.len, line, line[line.len - 1] == '\r' },
+        );
     }
 }
