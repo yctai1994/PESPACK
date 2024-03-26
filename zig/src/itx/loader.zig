@@ -45,6 +45,7 @@ const io = std.io;
 const os = std.os;
 const std = @import("std");
 const fmt = std.fmt;
+const mem = std.mem;
 const debug = std.debug;
 const posix = std.posix;
 const testing = std.testing;
@@ -193,22 +194,80 @@ fn nextline(buffer: []u8, file: posix.fd_t) ReadError![]u8 {
     return error.BufferTooShort;
 }
 
-test "test" {
+// For Igor Text File:
+//
+//     ------------------------- (INIT)
+//     IGOR
+//     ------------------------- (IGOR)
+//     WAVES/D/N=(3,2) wave0 --- (WAVES)
+//     BEGIN
+//     ------------------------- (BLOCK)
+//     .
+//     .
+//     .
+//     ------------------------- (BLOCK)
+//     END
+//     ------------------------- (MICS)
+const State = enum {
+    INIT,
+    IGOR,
+    WAVES,
+    BLOCK,
+    MICS,
+
+    fn peek(self: State) ?[]const u8 {
+        return switch (self) {
+            .INIT => "IGOR",
+            .IGOR => "WAVES",
+            .WAVES => "BEGIN",
+            .BLOCK => "END",
+            .MICS => null,
+        };
+    }
+
+    fn next(self: State) ?State {
+        return switch (self) {
+            .INIT => .IGOR,
+            .IGOR => .WAVES,
+            .WAVES => .BLOCK,
+            .BLOCK => .MICS,
+            .MICS => null,
+        };
+    }
+};
+
+test "test #2" {
     debug.print("\n", .{});
 
-    const file: posix.fd_t = if (fs.cwd().openFile(
+    const file: posix.fd_t = (try fs.cwd().openFile(
         "../../../assets/scan.itx",
         .{ .mode = .read_only },
-    )) |temp| temp.handle else |err| return err;
+    )).handle;
     defer posix.close(file);
 
-    var buffer: [128]u8 = undefined;
+    var buff: [128]u8 = undefined;
+    var stat: ?State = .INIT;
 
     for (0..13) |_| {
-        const line: []u8 = try nextline(&buffer, file);
+        const line: []u8 = try nextline(&buff, file);
+
         debug.print(
-            "{d: >4}: {s} (has \\r: {any})\n",
+            "{d: >4}: {s} (has \\r: {any})",
             .{ line.len, line, line[line.len - 1] == '\r' },
         );
+
+        if (stat) |s| {
+            if (s.peek()) |header| {
+                if (mem.eql(u8, header, line[0..header.len])) {
+                    debug.print(
+                        " \x1b[31m=> INFO: from {any} to {any}\x1b[0m",
+                        .{ s, s.next() },
+                    );
+                    stat = s.next();
+                } else debug.print(" \x1b[31m=> INFO: state = {any}\x1b[0m", .{s});
+            } else debug.print(" \x1b[31m=> INFO: state = {any}\x1b[0m", .{s});
+        }
+
+        debug.print("\n", .{});
     }
 }
