@@ -2,11 +2,13 @@ IGOR
 X //Created Date (UTC): 2024-03-18 11:16:18.948438
 X //Acquisition Parameters:
 X //User Comment      = position:189.4683;beta:0;X:14.140;Y:16.880;A:-00281001;B:+00350064;
-WAVES/D/N=(3,2) 'wave0'
+WAVES/D/N=(5,2) 'wave0'
 BEGIN
+  0.00 1.11
   1.11 2.22
+  2.22 3.33
   3.33 4.44
-  5.55 6.66
+  4.44 5.55
 END
 X SetScale /I x, -11.94125, 11.44125, "deg", 'wave0'
 X SetScale /P y, 5.2, 0.002,  "eV", 'wave0'

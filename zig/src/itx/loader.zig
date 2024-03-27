@@ -179,16 +179,20 @@ fn readByte(fd: posix.fd_t) ReadError!u8 {
 
 fn nextline(buffer: []u8, file: posix.fd_t) ReadError![]u8 {
     var end: usize = 0;
-    for (buffer) |*ptr| {
+    while (end < buffer.len) {
         if (readByte(file)) |byte| {
-            if (byte == '\r') continue;
+            if (byte == '\r') continue else {
+                buffer[end] = byte;
+                end += 1;
+            }
             if (byte == '\n') return buffer[0..end];
-            ptr.* = byte;
-            end += 1;
         } else |err| {
-            if (err == error.EndOfFile) {
-                return buffer[0..end];
-            } else return err;
+            if (err != error.EndOfFile) return err else {
+                if (end < buffer.len) {
+                    buffer[end] = '\n';
+                    return buffer[0 .. end + 1];
+                } else return error.BufferTooShort;
+            }
         }
     }
     return error.BufferTooShort;
@@ -199,39 +203,39 @@ fn nextline(buffer: []u8, file: posix.fd_t) ReadError![]u8 {
 //     ------------------------- (INIT)
 //     IGOR
 //     ------------------------- (IGOR)
-//     WAVES/D/N=(3,2) wave0 --- (WAVES)
+//     WAVES/D/N=(3,2) wave0 --- (WAVE)
 //     BEGIN
-//     ------------------------- (BLOCK)
+//     ------------------------- (DATA)
 //     .
 //     .
 //     .
-//     ------------------------- (BLOCK)
+//     ------------------------- (DATA)
 //     END
-//     ------------------------- (MICS)
+//     ------------------------- (MISC)
 const State = enum {
     INIT,
     IGOR,
-    WAVES,
-    BLOCK,
-    MICS,
+    WAVE,
+    DATA,
+    MISC,
 
     fn peek(self: State) ?[]const u8 {
         return switch (self) {
             .INIT => "IGOR",
             .IGOR => "WAVES",
-            .WAVES => "BEGIN",
-            .BLOCK => "END",
-            .MICS => null,
+            .WAVE => "BEGIN",
+            .DATA => "END",
+            .MISC => null,
         };
     }
 
-    fn next(self: State) ?State {
+    fn next(self: State) State {
         return switch (self) {
             .INIT => .IGOR,
-            .IGOR => .WAVES,
-            .WAVES => .BLOCK,
-            .BLOCK => .MICS,
-            .MICS => null,
+            .IGOR => .WAVE,
+            .WAVE => .DATA,
+            .DATA => .MISC,
+            .MISC => unreachable,
         };
     }
 };
@@ -245,29 +249,43 @@ test "test #2" {
     )).handle;
     defer posix.close(file);
 
-    var buff: [128]u8 = undefined;
-    var stat: ?State = .INIT;
+    const info: posix.fd_t = (try fs.cwd().createFile(
+        "../../../assets/scan.info",
+        .{ .read = false },
+    )).handle;
+    defer posix.close(info);
 
-    for (0..13) |_| {
+    const data: posix.fd_t = (try fs.cwd().createFile(
+        "../../../assets/scan.data",
+        .{ .read = false },
+    )).handle;
+    defer posix.close(data);
+
+    var buff: [128]u8 = undefined;
+    var stat: State = .INIT;
+
+    for (0..15) |_| {
         const line: []u8 = try nextline(&buff, file);
 
-        debug.print(
-            "{d: >4}: {s} (has \\r: {any})",
-            .{ line.len, line, line[line.len - 1] == '\r' },
-        );
+        debug.print("{d: >4}: {s}", .{ line.len, line });
 
-        if (stat) |s| {
-            if (s.peek()) |header| {
-                if (mem.eql(u8, header, line[0..header.len])) {
-                    debug.print(
-                        " \x1b[31m=> INFO: from {any} to {any}\x1b[0m",
-                        .{ s, s.next() },
-                    );
-                    stat = s.next();
-                } else debug.print(" \x1b[31m=> INFO: state = {any}\x1b[0m", .{s});
-            } else debug.print(" \x1b[31m=> INFO: state = {any}\x1b[0m", .{s});
+        if (stat.peek()) |header| {
+            if (mem.eql(u8, header, line[0..header.len])) {
+                stat = stat.next();
+            } else {
+                switch (stat) {
+                    .IGOR, .MISC => _ = try posix.write(info, line),
+                    .DATA => _ = try posix.write(data, line),
+                    else => {},
+                }
+            }
+        } else {
+            switch (stat) {
+                .IGOR, .MISC => _ = try posix.write(info, line),
+                .DATA => _ = try posix.write(data, line),
+                else => {},
+            }
         }
-
-        debug.print("\n", .{});
+        debug.print("\x1b[31mINFO: {any}\x1b[0m\n", .{stat});
     }
 }
