@@ -93,9 +93,11 @@ const WavesInfo = struct {
 fn parseWaves(str: []const u8) !WavesInfo {
     var ix: usize = 0;
 
-    for (IgorHeader.getString(.WAVES)) |char| {
+    for ("WAVES") |char| {
         if (char == str[ix]) ix += 1 else return error.KeywordError;
     }
+
+    // debug.print("ix = {d}\n", .{ix}); // ix = 5
 
     while (str[ix] == '/') {
         ix += 1;
@@ -122,7 +124,22 @@ fn parseWaves(str: []const u8) !WavesInfo {
 
     while (str[ix] == ' ') ix += 1;
 
-    return WavesInfo{ .nrow = nrow, .ncol = ncol, .name = str[ix..] };
+    for (str[ix..], ix..) |char, jx| {
+        switch (char) {
+            ' ', '\r', '\n' => return WavesInfo{
+                .nrow = nrow,
+                .ncol = ncol,
+                .name = str[ix..jx],
+            },
+            else => {},
+        }
+    }
+
+    return WavesInfo{
+        .nrow = nrow,
+        .ncol = ncol,
+        .name = str[ix..],
+    };
 }
 
 fn parseRow(des: []f64, src: []const u8) !void {
@@ -145,6 +162,20 @@ fn parseRow(des: []f64, src: []const u8) !void {
 test "test #1" {
     {
         const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'";
+        const info: WavesInfo = parseWaves(str) catch unreachable;
+        try testing.expect(info.nrow == 201);
+        try testing.expect(info.ncol == 132);
+        try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
+    }
+    {
+        const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'\r";
+        const info: WavesInfo = parseWaves(str) catch unreachable;
+        try testing.expect(info.nrow == 201);
+        try testing.expect(info.ncol == 132);
+        try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
+    }
+    {
+        const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'\n";
         const info: WavesInfo = parseWaves(str) catch unreachable;
         try testing.expect(info.nrow == 201);
         try testing.expect(info.ncol == 132);
@@ -177,7 +208,7 @@ fn readByte(fd: posix.fd_t) ReadError!u8 {
     return result[0];
 }
 
-fn nextline(buffer: []u8, file: posix.fd_t) ReadError![]u8 {
+fn nextLine(file: posix.fd_t, buffer: []u8) ReadError![]u8 {
     var end: usize = 0;
     while (end < buffer.len) {
         if (readByte(file)) |byte| {
@@ -196,6 +227,15 @@ fn nextline(buffer: []u8, file: posix.fd_t) ReadError![]u8 {
         }
     }
     return error.BufferTooShort;
+}
+
+fn writeLine(info: posix.fd_t, data: posix.fd_t, line: []const u8, stat: State) !void {
+    switch (stat) {
+        .IGOR, .MISC => _ = try posix.write(info, line),
+        .DATA => _ = try posix.write(data, line),
+        else => {},
+    }
+    return;
 }
 
 // For Igor Text File:
@@ -240,52 +280,42 @@ const State = enum {
     }
 };
 
+fn openFile(pth: []const u8) !posix.fd_t {
+    const file: fs.File = try fs.cwd().openFile(pth, .{ .mode = .read_only });
+    return file.handle;
+}
+
+fn createFile(pth: []const u8) !posix.fd_t {
+    const file: fs.File = try fs.cwd().createFile(pth, .{ .read = false });
+    return file.handle;
+}
+
 test "test #2" {
     debug.print("\n", .{});
 
-    const file: posix.fd_t = (try fs.cwd().openFile(
-        "../../../assets/scan.itx",
-        .{ .mode = .read_only },
-    )).handle;
-    defer posix.close(file);
-
-    const info: posix.fd_t = (try fs.cwd().createFile(
-        "../../../assets/scan.info",
-        .{ .read = false },
-    )).handle;
-    defer posix.close(info);
-
-    const data: posix.fd_t = (try fs.cwd().createFile(
-        "../../../assets/scan.data",
-        .{ .read = false },
-    )).handle;
-    defer posix.close(data);
+    const igor: posix.fd_t = try openFile("../../../assets/scan.itx");
+    const info: posix.fd_t = try createFile("../../../assets/scan.info");
+    const data: posix.fd_t = try createFile("../../../assets/scan.data");
+    defer {
+        posix.close(igor);
+        posix.close(info);
+        posix.close(data);
+    }
 
     var buff: [128]u8 = undefined;
     var stat: State = .INIT;
 
     for (0..15) |_| {
-        const line: []u8 = try nextline(&buff, file);
+        const line: []u8 = try nextLine(igor, &buff);
 
         debug.print("{d: >4}: {s}", .{ line.len, line });
 
         if (stat.peek()) |header| {
             if (mem.eql(u8, header, line[0..header.len])) {
                 stat = stat.next();
-            } else {
-                switch (stat) {
-                    .IGOR, .MISC => _ = try posix.write(info, line),
-                    .DATA => _ = try posix.write(data, line),
-                    else => {},
-                }
-            }
-        } else {
-            switch (stat) {
-                .IGOR, .MISC => _ = try posix.write(info, line),
-                .DATA => _ = try posix.write(data, line),
-                else => {},
-            }
-        }
+            } else try writeLine(info, data, line, stat);
+        } else try writeLine(info, data, line, stat);
+
         debug.print("\x1b[31mINFO: {any}\x1b[0m\n", .{stat});
     }
 }
