@@ -68,22 +68,6 @@ const IgorTextError = error{
     SizeError,
 };
 
-const IgorHeader = enum {
-    IGOR,
-    WAVES,
-    BEGIN,
-    END,
-
-    fn getString(e: IgorHeader) []const u8 {
-        return switch (e) {
-            .IGOR => "IGOR",
-            .WAVES => "WAVES",
-            .BEGIN => "BEGIN",
-            .END => "END",
-        };
-    }
-};
-
 const WavesInfo = struct {
     nrow: usize,
     ncol: usize,
@@ -91,13 +75,11 @@ const WavesInfo = struct {
 };
 
 fn parseWaves(str: []const u8) !WavesInfo {
-    var ix: usize = 0;
+    var ix: usize = 5;
 
-    for ("WAVES") |char| {
-        if (char == str[ix]) ix += 1 else return error.KeywordError;
-    }
-
-    // debug.print("ix = {d}\n", .{ix}); // ix = 5
+    // for ("WAVES") |char| {
+    //     if (char == str[ix]) ix += 1 else return error.KeywordError;
+    // }
 
     while (str[ix] == '/') {
         ix += 1;
@@ -145,16 +127,22 @@ fn parseWaves(str: []const u8) !WavesInfo {
 fn parseRow(des: []f64, src: []const u8) !void {
     var px: usize = 0;
     var ix: usize = 0;
+    var is_space: bool = true;
 
     for (src, 0..) |char, jx| {
-        if (char != ' ') continue else {
-            des[px] = try fmt.parseFloat(f64, src[ix..jx]);
-            ix = jx + 1;
-            px += 1;
+        if (is_space) {
+            if (char == ' ') continue else {
+                is_space = false;
+                ix = jx;
+            }
+        } else {
+            if (char != ' ') continue else {
+                des[px] = try fmt.parseFloat(f64, src[ix..jx]);
+                is_space = true;
+                px += 1;
+            }
         }
     }
-
-    des[px] = try fmt.parseFloat(f64, src[ix..]);
 
     return;
 }
@@ -165,21 +153,21 @@ test "test #1" {
         const info: WavesInfo = parseWaves(str) catch unreachable;
         try testing.expect(info.nrow == 201);
         try testing.expect(info.ncol == 132);
-        try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
+        try testing.expect(std.mem.eql(u8, "'ID_001'", info.name));
     }
     {
         const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'\r";
         const info: WavesInfo = parseWaves(str) catch unreachable;
         try testing.expect(info.nrow == 201);
         try testing.expect(info.ncol == 132);
-        try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
+        try testing.expect(std.mem.eql(u8, "'ID_001'", info.name));
     }
     {
         const str: []const u8 = "WAVES/S/N=(201,132) 'ID_001'\n";
         const info: WavesInfo = parseWaves(str) catch unreachable;
         try testing.expect(info.nrow == 201);
         try testing.expect(info.ncol == 132);
-        try testing.expect(std.mem.eql(u8, info.name, "'ID_001'"));
+        try testing.expect(std.mem.eql(u8, "'ID_001'", info.name));
     }
     {
         const str: []const u8 = "WAVE//S/N=(201,132) 'ID_001'";
@@ -194,10 +182,12 @@ test "test #1" {
         };
     }
     {
-        const src: []const u8 = "111.1 222.2 333.3";
+        const src: []const u8 = "  111.1 222.2 333.3  ";
+        const ans: [3]f64 = .{ 111.1, 222.2, 333.3 };
         var des: [3]f64 = undefined;
         try parseRow(&des, src);
-        debug.print("\n{any}\n", .{des});
+        try testing.expect(std.mem.eql(f64, &ans, &des));
+        // debug.print("\n{any}\n", .{des});
     }
 }
 
