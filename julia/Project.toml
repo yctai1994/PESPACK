@@ -2,3 +2,6 @@ name = "PESPACK"
 uuid = "91504d44-fc89-4fc6-9b73-e9561d1fd3bd"
 authors = ["yctai1994 <yctai.git@gmail.com>"]
 version = "0.1.0"
+
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
