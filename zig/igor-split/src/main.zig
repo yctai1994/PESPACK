@@ -1,24 +1,38 @@
 const std = @import("std");
 
+const ProcArgs = @import("./ProcArgs.zig");
+
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const proc_args = ProcArgs.init() catch |err| {
+        switch (err) {
+            error.InvalidParamFlag, error.InvalidParamNumber => return,
+            else => return err,
+        }
+    };
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    proc_args.check() catch |err| {
+        switch (err) {
+            error.InvalidParamNumber => return,
+            else => return err,
+        }
+    };
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.print("Memory Leaks: {any}\n", .{gpa.detectLeaks()});
+    const page: std.mem.Allocator = gpa.allocator();
 
-    try bw.flush(); // don't forget to flush!
-}
+    const info_path: []u8 = try proc_args.getPath(page, .info);
+    defer { // including errdefer
+        std.debug.print("defer page.free(info_path)\n", .{});
+        page.free(info_path);
+    }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+    const data_path: []u8 = try proc_args.getPath(page, .dat2);
+    defer { // including errdefer
+        std.debug.print("defer page.free(data_path)\n", .{});
+        page.free(data_path);
+    }
+
+    std.debug.print("info_path: {s}\n", .{info_path});
+    std.debug.print("data_path: {s}\n", .{data_path});
 }
