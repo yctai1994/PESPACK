@@ -8,15 +8,15 @@ pub fn build(b: *std.Build) void {
     // const optimize = b.standardOptimizeOption(.{});
 
     const lib = b.addSharedLibrary(.{
-        .name = "pespack",
+        .name = "-pespack",
         .root_source_file = b.path("src/root.zig"),
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = .ReleaseSafe,
     });
 
     const install = b.addInstallArtifact(lib, .{
         .dest_dir = .{
-            .override = .{ .custom = "../../../lib/" },
+            .override = .{ .custom = "../../lib/" },
         },
     });
 

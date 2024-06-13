@@ -10,20 +10,25 @@ const NewtonError = error{
 
 /// Using a combination of Newton-Raphson and bisection, return the root of a function bracketed
 /// between x1 and x2. The root will be refined until its accuracy is known within ±xacc.
-fn zFindRoot(
-    func: *const fn (x: f64) f64,
-    dfdx: *const fn (x: f64) f64,
+export fn cFindRoot(
+    func: *const fn (x: f64) callconv(.C) f64,
+    dfdx: *const fn (x: f64) callconv(.C) f64,
     goal: f64,
     x1: f64,
     x2: f64,
-) NewtonError!f64 {
+    // ) NewtonError!f64 {
+) f64 {
     const MAXIT: usize = 20; // Maximum allowed number of iterations.
     const XACC: f64 = std.math.floatEps(f64);
 
     const fl: f64 = func(x1) - goal;
     const fh: f64 = func(x2) - goal;
 
-    if ((fl > 0.0 and fh > 0.0) or (fl < 0.0 and fh < 0.0)) return error.OutOfBounds;
+    // if ((fl > 0.0 and fh > 0.0) or (fl < 0.0 and fh < 0.0)) return error.OutOfBounds;
+    if ((fl > 0.0 and fh > 0.0) or (fl < 0.0 and fh < 0.0)) {
+        @panic("Root must be bracketed in `cFindRoot`.");
+    }
+
     if (fl == 0.0) return x1;
     if (fh == 0.0) return x2;
 
@@ -66,29 +71,30 @@ fn zFindRoot(
         if (fv < 0.0) xl = rt else xh = rt;
     }
 
-    return error.TimeOutError;
+    // return error.TimeOutError;
+    @panic("Maximum number of iterations exceeded in `cFindRoot`.");
 }
 
-fn test_func(x: f64) f64 {
+fn test_func(x: f64) callconv(.C) f64 {
     return (@exp(-x) - 1.0) / x;
 }
 
-fn test_dfdx(x: f64) f64 {
+fn test_dfdx(x: f64) callconv(.C) f64 {
     return -(@exp(-x) + test_func(x)) / x;
 }
 
 test "test" {
     var root: f64 = undefined;
 
-    root = try zFindRoot(test_func, test_dfdx, -0.8, 0.01, 20.0);
+    root = cFindRoot(test_func, test_dfdx, -0.8, 0.01, 20.0);
     try std.testing.expectApproxEqAbs(0.4642127543788163, root, 1e-15);
 
-    root = try zFindRoot(test_func, test_dfdx, -0.4, 0.01, 20.0);
+    root = cFindRoot(test_func, test_dfdx, -0.4, 0.01, 20.0);
     try std.testing.expectApproxEqAbs(2.231611884023023, root, 1e-15);
 
-    root = try zFindRoot(test_func, test_dfdx, -0.2, 0.01, 20.0);
+    root = cFindRoot(test_func, test_dfdx, -0.2, 0.01, 20.0);
     try std.testing.expectApproxEqAbs(4.965114231744276, root, 1e-15);
 
-    root = try zFindRoot(test_func, test_dfdx, -0.1, 0.01, 20.0);
+    root = cFindRoot(test_func, test_dfdx, -0.1, 0.01, 20.0);
     try std.testing.expectApproxEqAbs(9.999545794446535, root, 1e-15);
 }
