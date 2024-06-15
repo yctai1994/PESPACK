@@ -17,3 +17,4 @@ export fn showAll(arr: [*]f64, num: usize) void {
 
 pub usingnamespace @import("./newton.zig");
 pub usingnamespace @import("./statistics.zig");
+pub usingnamespace @import("./gmm.zig");

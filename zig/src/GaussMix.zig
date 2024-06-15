@@ -1,13 +1,17 @@
-//! 1D Gaussian Mixture Model
-const std = @import("std");
-const math = std.math;
+//! 64D Gaussian Mixture Model
 
-const INF: comptime_float = math.inf;
-const SQRT_TWOPI: comptime_float = @sqrt(2.0 * math.pi);
-const LOG_SQRT_TWOPI: comptime_float = @log(@sqrt(2.0 * math.pi));
+resp: [][]f64,
+host: Array,
 
-inline fn abs2(x: f64) f64 {
-    return x * x;
+pub fn init(nrow: usize, kcol: usize) !@This() {
+    const ArrF64: Array = .{};
+    const resp: [][]f64 = try ArrF64.matrix(nrow, kcol);
+    return .{ .resp = resp, .host = ArrF64 };
+}
+
+pub fn deinit(self: *const @This()) void {
+    self.host.free(self.resp);
+    return;
 }
 
 // xvec: []f64, xvec.len == N <- data points
@@ -16,14 +20,15 @@ inline fn abs2(x: f64) f64 {
 // pvec: []f64, pvec.len == K <- K-priors
 // resp: [][]f64, resp.len == N, resp[n].len == K <- responsibility matrix
 
-fn stepE(
-    resp: [][]f64,
+pub fn stepE(
+    self: *const @This(),
     xvec: []f64,
     mvec: []f64,
     svec: []f64,
     pvec: []f64,
+    logL: *f64,
 ) void {
-    for (resp, xvec) |resp_n, x_n| {
+    for (self.resp, xvec) |resp_n, x_n| {
         for (resp_n, mvec, svec, pvec) |*resp_nk, m_k, s_k, p_k| {
             resp_nk.* = @log(p_k) - @log(s_k) - 0.5 * abs2((x_n - m_k) / s_k) - LOG_SQRT_TWOPI;
         }
@@ -32,7 +37,9 @@ fn stepE(
     var znmax: f64 = undefined;
     var temp: f64 = undefined;
 
-    for (resp) |resp_n| {
+    logL.* = 0.0;
+
+    for (self.resp) |resp_n| {
         znmax = -INF;
         for (resp_n) |resp_nk| {
             if (resp_nk > znmax) znmax = resp_nk;
@@ -43,13 +50,15 @@ fn stepE(
 
         temp = znmax + @log(temp);
         for (resp_n) |*resp_nk| resp_nk.* = @exp(resp_nk.* - temp);
+
+        logL.* += temp;
     }
 
     return;
 }
 
-fn stepM(
-    resp: [][]f64,
+pub fn stepM(
+    self: *const @This(),
     xvec: []f64,
     mvec: []f64,
     svec: []f64,
@@ -61,20 +70,36 @@ fn stepM(
 
     for (mvec, svec, pvec, 0..) |*m_k, *s_k, *p_k, k| {
         N_k = 0.0;
-        for (resp) |resp_n| N_k += resp_n[k];
+        for (self.resp) |resp_n| N_k += resp_n[k];
 
         p_k.* = N_k / N;
 
         tmp = 0.0;
-        for (resp, xvec) |resp_n, x_n| tmp += resp_n[k] * x_n;
+        for (self.resp, xvec) |resp_n, x_n| tmp += resp_n[k] * x_n;
 
         m_k.* = tmp / N_k;
 
         tmp = 0.0;
-        for (resp, xvec) |resp_n, x_n| tmp += resp_n[k] * abs2(x_n - m_k.*);
+        for (self.resp, xvec) |resp_n, x_n| tmp += resp_n[k] * abs2(x_n - m_k.*);
 
         s_k.* = @sqrt(tmp / N_k);
     }
 
     return;
 }
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+
+inline fn abs2(x: f64) f64 {
+    return x * x;
+}
+
+// = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+
+const std = @import("std");
+const math = std.math;
+
+const INF: comptime_float = math.inf(f64);
+const LOG_SQRT_TWOPI: comptime_float = @log(@sqrt(2.0 * math.pi));
+
+const Array = @import("./array.zig").Array;
